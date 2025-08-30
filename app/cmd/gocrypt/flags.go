@@ -48,7 +48,7 @@ func parseFlags() (*Config, error) {
 		os.Exit(2)
 	}
 
-	pw := os.Getenv("QFORGE_PASS")
+	pw := os.Getenv("CRYPT_PASS")
 	if pw == "" {
 		return nil, fmt.Errorf("missing passphrase: set QFORGE_PASS in the environment")
 	}
