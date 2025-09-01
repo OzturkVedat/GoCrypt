@@ -12,7 +12,7 @@ func makeNonce(base [8]byte, idx uint32) []byte {
 	return nonce
 }
 
-// AAD = "qforge/v1" || SHA256(headerBytes) || be32(idx)
+// AAD = prefix || SHA256(headerBytes) || be32(idx)
 const aadPrefix = "qforge/v1"
 
 func aadForIndex(idx uint32, hdrDigest [32]byte) []byte {

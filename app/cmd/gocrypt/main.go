@@ -20,48 +20,59 @@ func humanSize(n int64) string {
 		div *= unit
 		exp++
 	}
+	// human readable file size
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func die(err error) {
+	log.SetFlags(0)
+	log.Printf("error: %v", err)
+	os.Exit(1)
 }
 
 func main() {
 	cfg, err := parseFlags()
 	if err != nil {
-		die(err) // prints to stderr
+		die(err)
 	}
-	defer zero(cfg.Pass) // schedule the cleanup for the end
 
 	if err := validate(cfg); err != nil {
 		die(err)
 	}
 
 	if fi, err := os.Stat(cfg.InPath); err == nil {
-		log.Printf("Input: %s (%s)\n", filepath.Base(cfg.InPath), humanSize(fi.Size()))
+		log.Printf("Input:  %s (%s)", filepath.Base(cfg.InPath), humanSize(fi.Size()))
 	} else {
-		log.Printf("Input: %s (stat error: %v)\n", cfg.InPath, err)
+		log.Printf("Input:  %s (stat error: %v)", cfg.InPath, err)
 	}
+	log.Printf("Output: %s", filepath.Base(cfg.OutPath))
 
 	opt := engine.Options{
-		InPath:    cfg.InPath,
-		OutPath:   cfg.OutPath,
-		Pass:      cfg.Pass,
-		ChunkSize: cfg.ChunkSize,
+		InPath:  cfg.InPath,
+		OutPath: cfg.OutPath,
 	}
 
-	start := time.Now() // start the timer
+	start := time.Now()
 	var runErr error
+
 	switch cfg.Mode {
 	case "encrypt":
 		runErr = engine.EncryptFile(opt)
 	case "decrypt":
 		runErr = engine.DecryptFile(opt)
 	default:
-		log.Fatalf("unknown mode %q", cfg.Mode)
+		die(fmt.Errorf("unknown mode %q", cfg.Mode))
 	}
-
-	elapsed := time.Since(start)
-	log.Printf("%s took %s\n", cfg.Mode, elapsed)
 
 	if runErr != nil {
 		die(runErr)
+	}
+
+	elapsed := time.Since(start)
+	switch cfg.Mode {
+	case "encrypt":
+		log.Printf("Encryption took %s", elapsed)
+	case "decrypt":
+		log.Printf("Decryption took %s", elapsed)
 	}
 }

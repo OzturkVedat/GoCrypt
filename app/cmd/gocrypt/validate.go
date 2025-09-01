@@ -5,42 +5,67 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
+const (
+	encExt   = ".enc"
+	maxBytes = 5 * 1024 * 1024 * 1024 // 5 GiB
+)
+
+func deriveOut(mode, inAbs string) (string, error) {
+	switch mode {
+	case "encrypt":
+		return inAbs + encExt, nil
+	case "decrypt":
+		if !strings.HasSuffix(inAbs, encExt) {
+			return "", errors.New("decrypt requires input file to end with .enc")
+		}
+		return inAbs[:len(inAbs)-len(encExt)], nil
+	default:
+		return "", fmt.Errorf("unknown mode %q", mode)
+	}
+}
+
 func validate(cfg *Config) error {
-	// basic checks
+	if cfg.Mode != "encrypt" && cfg.Mode != "decrypt" {
+		return errors.New(`-mode must be "encrypt" or "decrypt"`)
+	}
 	if cfg.InPath == "" {
-		return errors.New("input path is required")
-	}
-	if cfg.OutPath == "" {
-		return errors.New("output path is required")
-	}
-	if len(cfg.Pass) == 0 {
-		return errors.New("passphrase must not be empty")
-	}
-	if cfg.ChunkSize < minChunk || cfg.ChunkSize > maxChunk {
-		return fmt.Errorf("chunk must be between %d and %d bytes", minChunk, maxChunk)
+		return errors.New("input path is required (-in)")
 	}
 
-	// input file must exist and be a regular file
-	inInfo, err := os.Stat(cfg.InPath)
+	// Resolve input to absolute and validate type
+	inAbs, err := filepath.Abs(cfg.InPath)
+	if err != nil {
+		return fmt.Errorf("abs(%s): %w", cfg.InPath, err)
+	}
+	fi, err := os.Lstat(inAbs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("input file %q does not exist", cfg.InPath)
+			return fmt.Errorf("input file %q does not exist", inAbs)
 		}
 		return fmt.Errorf("cannot stat input file: %w", err)
 	}
-	if !inInfo.Mode().IsRegular() {
-		return fmt.Errorf("input path %q is not a regular file", cfg.InPath)
+
+	// Only operate on regular files; reject symlinks/dirs/devices
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("input is a symlink: %s (refusing to follow)", inAbs)
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("input path %q is not a regular file", inAbs)
+	}
+	if fi.Size() > maxBytes {
+		return fmt.Errorf("input file %q is too large (%d bytes > 10 GiB limit)", inAbs, fi.Size())
 	}
 
-	// Resolve symlinks for input
-	inPathResolved := cfg.InPath
-	if p, err := filepath.EvalSymlinks(cfg.InPath); err == nil {
-		inPathResolved = p
+	outAbs, err := deriveOut(cfg.Mode, inAbs)
+	if err != nil {
+		return err
 	}
 
-	outDir := filepath.Dir(cfg.OutPath)
+	// Output directory must exist and be a directory
+	outDir := filepath.Dir(outAbs)
 	outDirInfo, err := os.Stat(outDir)
 	if err != nil {
 		return fmt.Errorf("cannot access output directory %q: %w", outDir, err)
@@ -49,31 +74,24 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("output directory %q is not a directory", outDir)
 	}
 
-	// if output exists:
-	if outInfo, err := os.Stat(cfg.OutPath); err == nil {
-		// Compare in/out as same file (handles hard links)
-		if os.SameFile(inInfo, outInfo) {
-			return fmt.Errorf("input and output refer to the same file")
+	// Refuse to overwrite existing output
+	if outInfo, err := os.Stat(outAbs); err == nil {
+		// Also guard against same-file via hard links
+		if os.SameFile(fi, outInfo) {
+			return errors.New("input and output refer to the same file")
 		}
-		if !cfg.Force {
-			return fmt.Errorf("output file %q already exists (use -force to overwrite)", cfg.OutPath)
-		}
+		return fmt.Errorf("output file %q already exists (overwrite disabled)", outAbs)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("cannot stat output path %q: %w", cfg.OutPath, err)
+		return fmt.Errorf("cannot stat output path %q: %w", outAbs, err)
 	}
 
-	// also guard against same path via symlinks even if output doesn't exist yet
-	inAbs, err := filepath.Abs(inPathResolved)
-	if err != nil {
-		return fmt.Errorf("cannot resolve absolute input path: %w", err)
-	}
-	outAbs, err := filepath.Abs(cfg.OutPath)
-	if err != nil {
-		return fmt.Errorf("cannot resolve absolute output path: %w", err)
-	}
+	// Final guard: identical absolute paths (covers non-existent output case)
 	if inAbs == outAbs {
-		return fmt.Errorf("input and output paths resolve to the same location")
+		return errors.New("input and output resolve to the same path")
 	}
 
+	// Normalize back into cfg for downstream use
+	cfg.InPath = inAbs
+	cfg.OutPath = outAbs
 	return nil
 }
