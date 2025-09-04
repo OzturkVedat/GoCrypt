@@ -22,7 +22,7 @@ import (
 	"gocrypt/internal/header"
 )
 
-const MaxAcceptedChunk = 16 * 1024 * 1024 // cap what you accept from file headers
+const MaxAcceptedChunk = 16 * 1024 * 1024
 
 func EncryptFile(opt Options) (retErr error) {
 	opt = AutoAdjust(opt)
@@ -67,7 +67,6 @@ func EncryptFile(opt Options) (retErr error) {
 	hmacKey := sha256.Sum256(append([]byte("hmac"), key...))
 	mac := hmac.New(sha256.New, hmacKey[:])
 
-	// header
 	headerBytes, err := header.WriteRaw(dst, h)
 	if err != nil {
 		return err
@@ -91,7 +90,7 @@ func EncryptFile(opt Options) (retErr error) {
 	jobs := make(chan job, opt.Workers*2)
 	results := make(chan res, opt.Workers*2)
 
-	// workers: Seal and WriteAt(len||ct)
+	// workers, Seal and WriteAt(len||ct)
 	var wg sync.WaitGroup
 	for w := 0; w < opt.Workers; w++ {
 		wg.Add(1)
@@ -158,7 +157,7 @@ func EncryptFile(opt Options) (retErr error) {
 		}
 	}()
 
-	// mac- drain results as they arrive, keep index order
+	// mac, drain results as they arrive, keep index order
 	want := uint32(0)
 	pending := make(map[uint32]res)
 	lenBuf := make([]byte, 4)
@@ -186,7 +185,6 @@ func EncryptFile(opt Options) (retErr error) {
 		}
 	}
 
-	// checking reader outcome and final offset
 	if rerr := <-readErrCh; rerr != nil {
 		retErr = rerr
 		return retErr
@@ -259,7 +257,7 @@ func DecryptFile(opt Options) (retErr error) {
 	tagSize := sha256.Size
 	dataEnd := fileSize - int64(tagSize)
 
-	// buffered reader (fewer syscalls on win)
+	// buffered reader (fewer syscalls on windows)
 	br := bufio.NewReaderSize(src, int(h.ChunkSize)*2)
 
 	type job struct {
@@ -273,7 +271,7 @@ func DecryptFile(opt Options) (retErr error) {
 
 	verifyCh := make(chan error, 1)
 
-	// reader goroutine: stream (len||ct), update HMAC, enqueue jobs, pre-grow dst
+	// reader goroutine, stream (len||ct), update HMAC, enqueue jobs, pre-grow dst
 	go func() {
 		defer close(jobs)
 		var idx uint32
@@ -352,7 +350,6 @@ func DecryptFile(opt Options) (retErr error) {
 		verifyCh <- nil
 	}()
 
-	// decrypt and WriteAt to proper offset (workers)
 	var wg sync.WaitGroup
 	var maxEnd int64 // track final size (largest end offset)
 	var firstErr atomic.Value
@@ -403,7 +400,6 @@ func DecryptFile(opt Options) (retErr error) {
 		return v.(error)
 	}
 
-	// hmac result (reader goroutine)
 	if verr := <-verifyCh; verr != nil {
 		return verr
 	}

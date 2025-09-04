@@ -64,7 +64,6 @@ func validate(cfg *Config) error {
 		return err
 	}
 
-	// Output directory must exist and be a directory
 	outDir := filepath.Dir(outAbs)
 	outDirInfo, err := os.Stat(outDir)
 	if err != nil {
@@ -76,7 +75,6 @@ func validate(cfg *Config) error {
 
 	// Refuse to overwrite existing output
 	if outInfo, err := os.Stat(outAbs); err == nil {
-		// Also guard against same-file via hard links
 		if os.SameFile(fi, outInfo) {
 			return errors.New("input and output refer to the same file")
 		}
@@ -85,12 +83,10 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("cannot stat output path %q: %w", outAbs, err)
 	}
 
-	// Final guard: identical absolute paths (covers non-existent output case)
 	if inAbs == outAbs {
 		return errors.New("input and output resolve to the same path")
 	}
 
-	// Normalize back into cfg for downstream use
 	cfg.InPath = inAbs
 	cfg.OutPath = outAbs
 	return nil
